@@ -1,11 +1,11 @@
 /**
  * @file     pt2313.c
  * @author   HS6502
- * @version  1.3
- * @date     11-Sep-2024 -- Updated 16-Oct-2024
+ * @version  1.4
+ * @date     11-Sep-2024 -- Updated 21-Nov-2024
  * @brief    Library for Drive PT2313 Audio Processor IC With STM8
  */
-#include <pt2313.h>
+#include "pt2313.h"
 
 static uint8_t PT2313_Atten_Register;      // Speaker Attenuators     
 static uint8_t PT2313_Switch_Register = 0x5F;  // See PT2313 Datasheet
@@ -15,7 +15,7 @@ static uint8_t PT2313_Switch_Register = 0x5F;  // See PT2313 Datasheet
  * @param Data
  */
 void PT2313_Write (uint8_t Data){ 
-    I2C_EnableAcknowledge();
+    I2C_Acknowledge(ENABLE);
     I2C_Start();
     I2C_WriteAddress(PT2313_ADDR,Tx);
     I2C_WriteData(Data);
@@ -97,6 +97,7 @@ void PT2313_Mute (bool Mute_State){
 
     if(Mute_State){
         PT2313_Atten_Register = 0xFF;   // Enable Mute
+    }
     else{
         PT2313_Atten_Register = 0xE0;   // Disable Mute
     }
@@ -109,10 +110,10 @@ void PT2313_Mute (bool Mute_State){
  * @brief Switch Audio Input
  * @param Input: Channel 1 to 4
  */
-void PT2313_Input (uint8_t Input_Channel){
-    Input_Channel = Check_Parameters(Input_Channel,4,1);
+void PT2313_Input (uint8_t Input){
+    Input = Check_Parameters(Input,4,1);
     PT2313_Switch_Register &= 0x5C;         // Clear bit 7,5,1,0
-    PT2313_Switch_Register |= Input_Channel;
+    PT2313_Switch_Register |= Input;
     PT2313_Write(PT2313_Switch_Register);
 }
 
