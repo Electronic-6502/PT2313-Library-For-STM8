@@ -1,30 +1,34 @@
 /**
  * @file     pt2313.c
  * @author   HS6502
- * @version  1.4
- * @date     11-Sep-2024 -- Updated 21-Nov-2024
- * @brief    Library for Drive PT2313 Audio Processor IC With STM8
+ * @version  V2.0
+ * @date     23-Oct-2025  || First Version : 11-Sep-2024
+ * @brief    PT2313 Audio Processor Library for STM8 
  */
 #include "pt2313.h"
 
-static uint8_t PT2313_Atten_Register;      // Speaker Attenuators     
+static uint8_t PT2313_Atten_Register;          // Speaker Attenuators     
 static uint8_t PT2313_Switch_Register = 0x5F;  // See PT2313 Datasheet
 
-/**
- * @brief Local Function for Write Data Register to PT2313
- * @param Data
- */
-void PT2313_Write (uint8_t Data){ 
-    I2C_Acknowledge(ENABLE);
-    I2C_Start();
-    I2C_WriteAddress(PT2313_ADDR,Tx);
-    I2C_WriteData(Data);
-    I2C_Stop();
+void PT2313_Init (void){
+    I2C->CR1    = I2C_CR2_SWRST;            /* Reset I2C Peripheral Registers */
+    I2C->FREQR  = 16;                       /* I2C Input Clock in MHz */
+    I2C->TRISER = 17;                       /* Maximum Rise Time = FREQR + 1 */
+    I2C->CCRL   = 50;                       /* I2C SCL Frequency = (Fmaster / FREQR) / (CCRL / 2) */
+    I2C->CR1    = I2C_CR1_PE;               /* Enable I2C Peripheral */    
 }
-/**
- * @brief Local Function for Check input Value, if Value out
- * @brief of Correct Range , Value Changed to Correct Range 
- */
+
+void _PT2313_Send (uint8_t Data){ 
+    I2C->CR2 = I2C_CR2_START;               /* Generate Start Condition */
+    while ((I2C->SR1 & I2C_SR1_SB) == 0);   /* Wait for Start Generation */
+    I2C->DR  = PT2313_ADDR << 1;
+    while ((I2C->SR1 & I2C_SR1_ADDR) == 0); /* Wait for Transmit Address */
+    I2C->DR  = Data;
+    while (((I2C->SR1) & I2C_SR1_TXE) == 0);/* Wait for Transmit Data */
+    I2C->CR2 = I2C_CR2_STOP;
+    while (I2C->SR3 & I2C_SR3_MSL);         /* Wait for Stop Generation */        
+}
+
 int8_t Check_Parameters (int8_t Value, int8_t Max, int8_t Min){
     if(Value > Max){
         Value = Max;
@@ -35,20 +39,12 @@ int8_t Check_Parameters (int8_t Value, int8_t Max, int8_t Min){
     return Value;
 }
 
-/**
- * @brief  Function for Set Volume
- * @param  Volume Set Volume Value 0 to 63
- */
 void PT2313_Volume (uint8_t Volume){
     Volume = Check_Parameters(Volume,63,0);
     Volume = 63 - Volume ;
-    PT2313_Write(Volume);   
+    _PT2313_Send(Volume);   
 }
 
-/**
- * @brief  Function for Set Bass Gain
- * @param  Bass Bass Range from -7 to 7
- */
 void PT2313_Bass (int8_t Bass){
     Bass = Check_Parameters(Bass,7,-7);
     if(Bass > 0){                       // Value Bigger than 0    
@@ -58,7 +54,7 @@ void PT2313_Bass (int8_t Bass){
         Bass = Bass + 7;
     }
     Bass +=  0x60 ;
-    PT2313_Write(Bass);
+    _PT2313_Send(Bass);
 }
 
 void PT2313_Treble (int8_t Treble){
@@ -70,26 +66,26 @@ void PT2313_Treble (int8_t Treble){
         Treble = Treble + 7;
     }
     Treble += 0x70 ;
-    PT2313_Write(Treble);
+    _PT2313_Send(Treble);
 }
 /*----------------------PT2313 Attenuatios Registers----------------------*/
 void PT2313_Balance (int8_t Balance){
     Check_Parameters(Balance,7,-7);
     if(Balance < 0){                     // Negative Value = Left Attrib
-        PT2313_Write(0x80);              // PT2313 Front Left Attrib to 0
-        PT2313_Write(0xA0 | (-Balance));
-        PT2313_Write(0xC0);              // PT2313 Rear Left Attrib to 0      
-        PT2313_Write(0xE0 | (-Balance));     
+        _PT2313_Send(0x80);              // PT2313 Front Left Attrib to 0
+        _PT2313_Send(0xA0 | (-Balance));
+        _PT2313_Send(0xC0);              // PT2313 Rear Left Attrib to 0      
+        _PT2313_Send(0xE0 | (-Balance));     
         //Balance += 0xC0;                
-        //PT2313_Write(Balance);
+        //_PT2313_Send(Balance);
     }
     else{                             // Positive Value = Right Attrib
-        PT2313_Write(0x80 | Balance);  // Front Left Set Attenuation
-        PT2313_Write(0xA0);            // Front Right Attrib to 0
-        PT2313_Write(0xC0 | Balance);  // Rear Left Set Attenuation
-        PT2313_Write(0xE0);            // Rear Right Attrib to 0
+        _PT2313_Send(0x80 | Balance);  // Front Left Set Attenuation
+        _PT2313_Send(0xA0);            // Front Right Attrib to 0
+        _PT2313_Send(0xC0 | Balance);  // Rear Left Set Attenuation
+        _PT2313_Send(0xE0);            // Rear Right Attrib to 0
         //Balance += 0xE0;                // PT2313 Rear Right Register
-        //PT2313_Write(Balance);
+        //_PT2313_Send(Balance);
     }
 }
 
@@ -101,20 +97,17 @@ void PT2313_Mute (bool Mute_State){
     else{
         PT2313_Atten_Register = 0xE0;   // Disable Mute
     }
-    PT2313_Write(PT2313_Atten_Register);
+    _PT2313_Send(PT2313_Atten_Register);
 }
 /*----------------------Attenuation Registers End----------------------*/
 
 /*----------------------PT2313 Switch Registers----------------------*/
-/**
- * @brief Switch Audio Input
- * @param Input: Channel 1 to 4
- */
+
 void PT2313_Input (uint8_t Input){
     Input = Check_Parameters(Input,4,1);
     PT2313_Switch_Register &= 0x5C;         // Clear bit 7,5,1,0
     PT2313_Switch_Register |= Input;
-    PT2313_Write(PT2313_Switch_Register);
+    _PT2313_Send(PT2313_Switch_Register);
 }
 
 void PT2313_Gain (uint8_t Gain){
@@ -122,20 +115,12 @@ void PT2313_Gain (uint8_t Gain){
     PT2313_Switch_Register &= 0x47;         // Clear bit 7,5,4,3   
     Gain = 0x03 - Gain;
     PT2313_Switch_Register |= (Gain << 3);
-    PT2313_Write(PT2313_Switch_Register);
+    _PT2313_Send(PT2313_Switch_Register);
 }
 
-void PT2313_Loudness (bool Loudness_Status){           // ON or 1 = Enable, OFF or 0 = Disable
+void PT2313_Loudness (bool Loudness_Status){               // ON or 1 = Enable, OFF or 0 = Disable
     PT2313_Switch_Register &= 0x5B;                        // Clear bit 7,5,2
     PT2313_Switch_Register |= ((~Loudness_Status) << 1);
-    PT2313_Write(PT2313_Switch_Register);
+    _PT2313_Send(PT2313_Switch_Register);
 }
-/*----------------------Switch Registers End----------------------*/
-
-void PT2313_Reset (void){
-    PT2313_Volume(PT2313_Default_Volume);
-    PT2313_Input(PT2313_Default_Input);
-    PT2313_Balance(0);
-    PT2313_Bass(0);
-    PT2313_Treble(0);    
-}
+/* End of File */
